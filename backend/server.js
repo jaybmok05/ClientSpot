@@ -6,6 +6,7 @@ import express from 'express';
 import {notFound, errorHandler} from './middleware/errorMiddleware.js';
 import userRouters from './routes/userRoutes.js';
 import sessionMiddleware from './middleware/sessionMiddleware.js';
+import companyRouters from './routes/companyRoutes.js';
 
 /*Connect to database*/
 connectDataBase();
@@ -27,6 +28,7 @@ app.use(cookieParser());
 app.use(sessionMiddleware);
 /* register user*/
 app.use('/api/users', userRouters);
+app.use('/api/company', companyRouters);
 
 /*Routes*/
 app.get('/', (req, res) => res.send('Server is ready'));

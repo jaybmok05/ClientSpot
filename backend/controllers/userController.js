@@ -18,6 +18,9 @@ const loginUser = asyncHandler(async (req, res) => {
         // Check if the user exists in the database
         const user = await User.findOne({ email });
 
+        if (!email || !password) {
+            return res.status(400).json({ message: "Email and password are required." });
+        }
         // If the user does not exist, return an error
         if (!user) {
             return res.status(404).json({ message: "User not found. Please sign up." });
@@ -172,10 +175,9 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 // @access  Private/Admin (if applicable)
 const deleteUser = asyncHandler(async (req, res) => {
     try {
-      const userId = req.params.id;
   
       // Find the user by ID and delete it
-      const user = await User.findByIdAndDelete(userId);
+      const user = await User.findByIdAndDelete(req.params.id);
   
       if (user) {
         res.json({ message: 'User deleted successfully' });
