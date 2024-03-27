@@ -45,8 +45,8 @@ const companySchema = mongoose.Schema({
         default: 'https://res.cloudinary.com/dxkufsejm/image/upload/v1626820000/placeholder.jpg'
     }],
     attachments: [{ 
-        filename: { type: String, required: true },
-        url: { type: String, required: true }
+        filename: { type: String},
+        url: { type: String }
     }]
 }, { timestamps: true });
 

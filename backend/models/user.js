@@ -9,6 +9,10 @@ const userSchema = mongoose.Schema({
     firstName: { type: String },
     lastName: { type: String },
     password: { type: String, required: true },
+    isAdmin: {
+        type: Boolean,
+        default: false,
+    }
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {

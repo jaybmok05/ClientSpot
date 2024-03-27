@@ -3,6 +3,7 @@ import sendEmail from '../utils/sendEmail.js';
 import generateUniqueCode from '../utils/generateUniqueCode.js';
 import User from '../models/user.js';
 import generateAuthToken from '../utils/generateAuthToken.js';
+import Codes from '../models/code.js';
 
 
 // @desc  Login User and set token
@@ -49,9 +50,17 @@ const loginUser = asyncHandler(async (req, res) => {
 // @access Public
 const signUpUser = asyncHandler(async (req, res) => {
     const { email, firstName, lastName, password1, password2, code } = req.body;
-
+    console.log(code);
     try {
+        if (!email || !code) {
+            return res.status(400).json({ message: "Email and Code are required to signup" });
+        }
+        // Find the latest code associated with the email
+        const latestCode = await Codes.findOne({ email }).sort({ createdAt: -1 });
 
+        if (!latestCode) {
+            return res.status(400).json({ message: "Please get generated code." });
+        }
         // Regular expression for email validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
@@ -64,25 +73,14 @@ const signUpUser = asyncHandler(async (req, res) => {
             return res.status(400).json({ message: "User already exists." });
         }
 
-        if (!codeMap.has(email)) {
-            return res.status(400).json({ message: "Invalid email or code." });
+        if (latestCode.code !== code) {
+            throw new Error('Invalid code. Please check your credentials.');
         }
-
-        // Retrieve the code and its associated timestamp from the codeMap
-        const { code: generatedCode, timestamp } = codeMap.get(email);
-
-        // Check if the code has expired (e.g., expired after three days minutes)
+      
+        // Check if the code has expired
         const expirationDuration = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
-        const currentTime = Date.now();
-
-        if (currentTime - timestamp > expirationDuration) {
-            // Code has expired
-            return res.status(400).json({ message: "Verification code has expired. Please request a new one." });
-        }
-
-        // Check if the provided code matches the generated code
-        if (generatedCode !== code) {
-            return res.status(400).json({ message: "Invalid code. Please check your credentials." });
+        if (Date.now() - latestCode.createdAt.getTime() > expirationDuration) {
+            throw new Error('Verification code has expired. Please request a new one.');
         }
 
         const passwordError = validatePassword(password1);
@@ -98,7 +96,9 @@ const signUpUser = asyncHandler(async (req, res) => {
         // Create the new user
         const newUser = new User({ email, firstName, lastName, password: password1 });
         await newUser.save();
-        codeMap.delete(email);
+
+        // Delete the verification code
+        await Codes.deleteOne({ _id: latestCode._id });
 
         //generate and set a JWT token for authentication
         const token = generateAuthToken(res, newUser._id);
@@ -231,7 +231,7 @@ const sendPasswordResetOTP = asyncHandler(async (req, res) => {
 const updatePasswordWithOTP = asyncHandler(async (req, res) => {
     const { email, otp, newPassword } = req.body;
 
-    // Check if email, OTP, and new password are provided
+    // Check OTP, and new password are provided
     if (!otp || !newPassword) {
         return res.status(400).json({ message: 'OTP, and new password are required' });
     }
@@ -297,7 +297,6 @@ const validatePassword = (password) => {
 };
 
 
-const codeMap = new Map();
 // Controller function to send verification code to the user's email
 const sendCodeToEmail = asyncHandler(async (req, res) => {
     const { email } = req.body;
@@ -305,27 +304,26 @@ const sendCodeToEmail = asyncHandler(async (req, res) => {
     if (!email) {
         return res.status(400).json({ msg: 'Email is required' });
     }
-
     try {
         // Generate a unique verification code
         const code = generateUniqueCode();
-
-        // Store the code and its associated timestamp in the map
-        const timestamp = Date.now();
-        codeMap.set(email, { code, timestamp });
-
+    
+        // Save the verification code in the database
+        const signupCodeInfo = new Codes({ email, code })
+        await signupCodeInfo.save();
+    
         // Compose email
         const subject = 'Verification code to sign up to clientSpot';
         const text = `Your verification code is: ${code}, please sign up within three days before code expires`;
-
+    
         // Send email using sendEmail function
         await sendEmail(email, subject, text);
-        
+    
         res.status(200).json({ msg: 'Email sent successfully' });
-    } catch (error) {
-        console.error('Error sending email:', error);
-        res.status(500).json({ msg: 'Error sending email' });
-    }
+      } catch (error) {
+        console.error('Error sending verification code:', error);
+        throw new Error('Failed to send verification code.');
+      }
 });
 
 
