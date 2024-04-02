@@ -4,11 +4,9 @@ import generateUniqueCode from '../utils/generateUniqueCode.js';
 import User from '../models/user.js';
 import generateAuthToken from '../utils/generateAuthToken.js';
 import Codes from '../models/code.js';
+import OTP from '../models/otp.js';
 
 
-// @desc  Login User and set token
-// route POST /api/users/login
-// @access Public
 // @desc  Login User and set token
 // route POST /api/users/login
 // @access Public
@@ -192,85 +190,74 @@ const deleteUser = asyncHandler(async (req, res) => {
 
 
 // @desc    Send otp user for password reset
-// @route   PUT /api/users/profile
-// @access  Private
+// @route   PUT /api/users/sendOtp
+// sendPasswordResetOTP handler
 const sendPasswordResetOTP = asyncHandler(async (req, res) => {
-    const { email } = req.body;
+  const { email } = req.body;
 
-    // Check if email is provided
-    if (!email) {
-        return res.status(400).json({ message: 'Email is required' });
-    }
+  const user = await User.findOne({ email });
+        
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+  // Generate a unique OTP
+  const OTPCode = generateUniqueCode();
 
-    try {
-        // Generate a unique OTP
-        const OTP = generateUniqueCode();
+  // Calculate expiration time (e.g., 5 minutes from now)
+  const expirationTime = new Date(Date.now() + 5 * 60 * 1000);
 
-        // Store OTP in session with expiration time
-        req.session.resetOTP = {
-            code: OTP,
-            expires: Date.now() + 5 * 60 * 1000 // 10 minutes
-        };
+  try { 
+    // Save OTP to the database
+    await OTP.create({ email, code: OTPCode, expiresAt: expirationTime });
 
-        // Compose email
-        const subject = 'Password Reset OTP';
-        const text = `Your password reset OTP is: ${OTP}. This OTP is valid for 5 minutes.`;
+    // Compose email
+    const subject = 'Password Reset OTP';
+    const text = `Your password reset OTP is: ${OTPCode}. This OTP is valid for 5 minutes.`;
 
-        // Send email with OTP
-        await sendEmail(email, subject, text);
+    // Send email with OTP
+    await sendEmail(email, subject, text);
 
-        res.status(200).json({ message: 'Password reset OTP sent successfully' });
-    } catch (error) {
-        console.error('Error sending password reset OTP:', error);
-        res.status(500).json({ message: 'Error sending password reset OTP' });
-    }
+    res.status(200).json({ message: 'Password reset OTP sent successfully' });
+  } catch (error) {
+    console.error('Error sending password reset OTP:', error);
+    res.status(500).json({ message: 'Error sending password reset OTP' });
+  }
 });
 
 
-// Update the password update controller
+// @desc    Update user password
+// @route   PUT /api/users/updatePassword
+// @access  Private
 const updatePasswordWithOTP = asyncHandler(async (req, res) => {
-    const { email, otp, newPassword } = req.body;
+  const { email, otp, newPassword } = req.body;
 
-    // Check OTP, and new password are provided
-    if (!otp || !newPassword) {
-        return res.status(400).json({ message: 'OTP, and new password are required' });
-    }
+  try {
+      // Find the OTP document in the database
+      const otpDocument = await OTP.findOne({ email, code: otp });
+      
+      // Check if OTP is valid and not expired
+      if (!otpDocument || otpDocument.expiresAt < new Date()) {
+        return res.status(400).json({ message: 'Invalid or expired OTP' });
+      }
+    
+      const user = await User.findOne({ email });
 
-    try {
-        // Check if the OTP exists in the session
-        const sessionOTP = req.session.resetOTP;
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
 
-        if (!sessionOTP || sessionOTP.code !== otp || Date.now() > sessionOTP.expires) {
-            // OTP is invalid or expired
-            return res.status(400).json({ message: 'Invalid or expired OTP' });
-        }
+      // Update the user's password
+      user.password = newPassword || user.password;
+      await user.save();
 
-        // Clear the OTP from the session
-        delete req.session.resetOTP;
+      // Delete the OTP document from the database
+      await OTP.deleteOne({ _id: otpDocument._id });
 
-        // Update the user's password in the database (assuming you have a User model)
-        const user = await User.findOne({ email });
-
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        }
-
-        // Update the user's password
-        user.password = newPassword || user.password;
-        await user.save();
-
-        // Invalidate the user's session to prevent login with the old password
-        req.session.destroy((err) => {
-            if (err) {
-                console.error('Error destroying session:', err);
-                return res.status(500).json({ message: 'Error destroying session' });
-            }
-            res.status(200).json({ message: 'Password updated successfully' });
-        });
-    } catch (error) {
-        console.error('Error updating password with OTP:', error);
-        res.status(500).json({ message: 'Error updating password with OTP' });
-    }
+      res.status(200).json({ message: 'Password updated successfully' });
+  } catch (error) {
+      console.error('Error updating password with OTP:', error);
+      res.status(500).json({ message: 'Error updating password with OTP' });
+  }
 });
 
 
